@@ -1,4 +1,4 @@
-// RASA RUSH — program penyerahan (Node 22, standard library only).
+// RASA RUSH v2 — program penyerahan (Node 22, standard library only).
 // Menyalin game/ dan screenshots/ dari samping file ini ke /output (atau
 // $MAKEFUN_OUTPUT_DIR di luar grader) lalu menulis /output/dossier.json
 // dengan buildDossier dari vendor/makefun-game.ts. Output deterministik:

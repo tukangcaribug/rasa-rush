@@ -1,11 +1,13 @@
-// RASA RUSH — state dan rules: gerak koki, proses masak/potong, pesanan, rakit, saji, skor.
+// RASA RUSH v2 — state dan rules: gerak koki, proses masak/potong, pesanan, rakit,
+// saji, skor, kesulitan, mode endless, upgrade, dan pelanggan VIP.
 // Semua perubahan permainan lewat createWorld / step / interact, supaya shots.js dan
 // main.js memakai aturan yang sama persis.
 
 import {
-  FLOOR, INTERACT_RANGE, MAX_ORDERS, MAX_STARS, PLAYER_RADIUS, PLAYER_SPEED,
-  RECIPES, SHIFT_SECONDS, STATIONS, nextProcess, orderPatience, recipeById,
-  spawnInterval, stationById,
+  DIFFICULTIES, FLOOR, INTERACT_RANGE, MAX_ORDERS, MAX_STARS, PLAYER_RADIUS,
+  RECIPES, STATIONS, TIP_MAX, UPGRADES, VIP_CHANCE, VIP_COIN_MULT,
+  VIP_PATIENCE_MULT, difficultyDef, nextProcess, orderPatienceFor, recipeById,
+  spawnIntervalFor, stationById, upgradeCost,
 } from './config.js';
 import { makeRng } from './random.js';
 
@@ -24,32 +26,54 @@ export function makeItem(kind, stage = 'raw') {
   return { kind, stage };
 }
 
-export function createWorld(seed) {
+function emptyBurner() {
+  return { item: null, progress: 0, time: 0, done: false, burnt: false, burnIn: 0 };
+}
+
+function normalizeUpgrades(input) {
+  const src = input || {};
+  return {
+    shoes: Math.max(0, Math.floor(src.shoes || 0)),
+    burner: Math.max(0, Math.floor(src.burner || 0)),
+    patience: Math.max(0, Math.floor(src.patience || 0)),
+  };
+}
+
+export function createWorld(seed, opts = {}) {
+  const difficulty = DIFFICULTIES[opts.difficulty] ? opts.difficulty : 'normal';
+  const def = DIFFICULTIES[difficulty];
+  const endless = !!opts.endless;
+  const upgrades = normalizeUpgrades(opts.upgrades);
   const rng = makeRng(seed);
+  const stove = [emptyBurner(), emptyBurner()];
+  for (let i = 0; i < upgrades.burner; i += 1) stove.push(emptyBurner());
   return {
     state: {
       seed,
       rng,
+      difficulty,
+      endless,
+      upgrades,
+      shift: def.shiftSeconds,
+      playerSpeed: def.speed * (1 + 0.15 * upgrades.shoes),
       time: 0,
-      timeLeft: SHIFT_SECONDS,
+      timeLeft: endless ? Infinity : def.shiftSeconds,
       score: 0,
       coins: 0,
       combo: 0,
       bestCombo: 0,
-      stars: MAX_STARS,
+      stars: def.stars,
       served: 0,
       failed: 0,
       missed: 0,
       burned: 0,
+      vipServed: 0,
       nextOrderId: 1,
       spawnIn: 0.5,
       orders: [],
       player: { x: 640, y: 560, hand: null },
       board: { item: null, progress: 0, time: 0, done: false },
-      stove: [
-        { item: null, progress: 0, time: 0, done: false, burnt: false, burnIn: 0 },
-        { item: null, progress: 0, time: 0, done: false, burnt: false, burnIn: 0 },
-      ],
+      stove,
       assembly: [],
       dish: null,
       message: '',
@@ -59,9 +83,29 @@ export function createWorld(seed) {
   };
 }
 
-export function resetWorld(world, seed) {
-  const fresh = createWorld(seed);
+export function resetWorld(world, seed, opts = {}) {
+  const fresh = createWorld(seed, opts);
   world.state = fresh.state;
+}
+
+// Beli satu level upgrade bila koin cukup dan belum max. Kembalikan true bila
+// berhasil (koin berkurang); burner menambah satu slot kompor, shoes menaikkan
+// kecepatan gerak. Harga level n (0-based) = baseCost * (n + 1).
+export function applyUpgrade(state, id) {
+  const def = UPGRADES[id];
+  if (!def) return false;
+  const level = state.upgrades[id] || 0;
+  if (level >= def.max) return false;
+  const cost = upgradeCost(id, level);
+  if (state.coins < cost) return false;
+  state.coins -= cost;
+  state.upgrades[id] = level + 1;
+  if (id === 'burner') state.stove.push(emptyBurner());
+  if (id === 'shoes') {
+    const d = difficultyDef(state.difficulty);
+    state.playerSpeed = d.speed * (1 + 0.15 * state.upgrades.shoes);
+  }
+  return true;
 }
 
 function say(state, text) {
@@ -117,12 +161,18 @@ function nearestStation(state) {
 
 function spawnOrder(state) {
   const recipe = state.rng.pick(RECIPES);
-  const patience = orderPatience(state.time);
+  const base = orderPatienceFor(state.difficulty, state.time, state.endless);
+  // Variasi kesabaran tiap order: base x (0.85..1.15), lalu bonus VIP dan upgrade.
+  let patience = base * (0.85 + state.rng.next() * 0.3);
+  const vip = state.rng.next() < VIP_CHANCE;
+  if (vip) patience *= VIP_PATIENCE_MULT;
+  patience *= 1 + 0.2 * (state.upgrades.patience || 0);
   state.orders.push({
     id: state.nextOrderId,
     recipe: recipe.id,
     patience,
     maxPatience: patience,
+    vip,
   });
   state.nextOrderId += 1;
 }
@@ -283,15 +333,22 @@ export function interact(world) {
       const order = state.orders[idx];
       state.orders.splice(idx, 1);
       const recipe = recipeById(order.recipe);
-      const tip = Math.round((order.patience / order.maxPatience) * 10);
+      let tip = Math.round((order.patience / order.maxPatience) * TIP_MAX);
+      if (order.vip) tip *= 2;
       const mult = 1 + 0.1 * state.combo;
-      const earned = Math.round((recipe.coins + tip) * mult);
+      let earned = Math.round((recipe.coins + tip) * mult);
+      if (order.vip) {
+        earned *= VIP_COIN_MULT;
+        state.vipServed += 1;
+      }
       state.coins += earned;
       state.score += earned;
       state.combo += 1;
       state.bestCombo = Math.max(state.bestCombo, state.combo);
       state.served += 1;
-      say(state, `Tersaji! +${earned} koin (tip ${tip})`);
+      say(state, order.vip
+        ? `VIP tersaji! +${earned} koin (tip ${tip})`
+        : `Tersaji! +${earned} koin (tip ${tip})`);
       events |= EVENT_SERVED;
     } else {
       state.combo = 0;
@@ -324,8 +381,6 @@ export function interact(world) {
 function collideStations(state) {
   const p = state.player;
   for (const s of STATIONS) {
-    const nx = Math.max(s.x - PLAYER_RADIUS, Math.min(p.x, s.x + s.w + PLAYER_RADIUS));
-    const ny = Math.max(s.y - PLAYER_RADIUS, Math.min(p.y, s.y + s.h + PLAYER_RADIUS));
     // Dorong keluar hanya bila pusat koki masuk ke kotak stasiun yang diperbesar.
     if (p.x > s.x - PLAYER_RADIUS && p.x < s.x + s.w + PLAYER_RADIUS
       && p.y > s.y - PLAYER_RADIUS && p.y < s.y + s.h + PLAYER_RADIUS) {
@@ -339,8 +394,6 @@ function collideStations(state) {
       else if (m === dyt) p.y = s.y - PLAYER_RADIUS;
       else p.y = s.y + s.h + PLAYER_RADIUS;
     }
-    void nx;
-    void ny;
   }
 }
 
@@ -351,14 +404,15 @@ export function stepWorld(world, dt, input) {
   let events = EVENT_NONE;
 
   state.time += dt;
-  state.timeLeft = Math.max(0, SHIFT_SECONDS - state.time);
+  // Endless: waktu berjalan terus, tidak ada batas shift.
+  state.timeLeft = state.endless ? Infinity : Math.max(0, state.shift - state.time);
   if (state.messageT > 0) state.messageT -= dt;
 
-  // Gerak koki.
+  // Gerak koki (kecepatan dipengaruhi kesulitan + upgrade sepatu).
   const len = Math.hypot(input.mx || 0, input.my || 0);
   if (len > 0.01) {
-    state.player.x += ((input.mx || 0) / len) * PLAYER_SPEED * dt;
-    state.player.y += ((input.my || 0) / len) * PLAYER_SPEED * dt;
+    state.player.x += ((input.mx || 0) / len) * state.playerSpeed * dt;
+    state.player.y += ((input.my || 0) / len) * state.playerSpeed * dt;
     state.player.x = Math.max(FLOOR.x + PLAYER_RADIUS, Math.min(FLOOR.x + FLOOR.w - PLAYER_RADIUS, state.player.x));
     state.player.y = Math.max(FLOOR.y + PLAYER_RADIUS, Math.min(FLOOR.y + FLOOR.h - PLAYER_RADIUS, state.player.y));
     collideStations(state);
@@ -404,7 +458,7 @@ export function stepWorld(world, dt, input) {
   state.spawnIn -= dt;
   if (state.spawnIn <= 0 && state.orders.length < MAX_ORDERS) {
     spawnOrder(state);
-    state.spawnIn = spawnInterval(state.time);
+    state.spawnIn = spawnIntervalFor(state.difficulty, state.time, state.endless);
     events |= EVENT_ORDER;
   }
 
@@ -429,9 +483,13 @@ export function stepWorld(world, dt, input) {
   // Interaksi (edge-triggered oleh pemanggil).
   if (input.interact) events |= interact(world);
 
-  if (state.timeLeft <= 0 && !state.over) {
+  // Shift berakhir hanya bila bukan endless dan bintang belum habis.
+  if (!state.endless && state.timeLeft <= 0 && !state.over) {
     state.over = true;
     events |= EVENT_OVER;
   }
   return events;
 }
+
+// Dipakai render/shots untuk info stasiun tanpa mengimpor config langsung.
+export { stationById };

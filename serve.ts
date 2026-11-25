@@ -1,7 +1,8 @@
-// Server statis kecil untuk game/ (Node 22, standard library only), supaya entry bisa
-// dimainkan lokal tanpa build step: `node serve.ts` menyajikan game/ di http://localhost:8080.
-// Mengirim MIME type yang dibutuhkan game browser, menolak path di luar game/, dan
-// tidak melakukan hal lain: ini kenyamanan pengembangan, bukan server untuk internet.
+// RASA RUSH v2 — server statis kecil untuk game/ (Node 22, standard library only),
+// supaya entry bisa dimainkan lokal tanpa build step: `node serve.ts` menyajikan
+// game/ di http://localhost:8080. Mengirim MIME type yang dibutuhkan game browser,
+// menolak path di luar game/, dan tidak melakukan hal lain: ini kenyamanan
+// pengembangan, bukan server untuk internet.
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { extname, join, normalize, resolve, sep } from 'node:path';

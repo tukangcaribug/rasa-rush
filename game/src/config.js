@@ -1,5 +1,6 @@
-// RASA RUSH — konfigurasi: ukuran layar, stasiun dapur, bahan, resep, dan tuning.
-// Satu sumber kebenaran untuk angka-angka yang dipakai world.js, render.js dan shots.js.
+// RASA RUSH v2 — konfigurasi: ukuran layar, stasiun dapur, bahan, resep, kesulitan,
+// upgrade, dan tuning. Satu sumber kebenaran untuk angka-angka yang dipakai
+// world.js, render.js dan shots.js.
 
 export const VIEW = { width: 1280, height: 720 };
 export const SHIFT_SECONDS = 180;
@@ -26,6 +27,34 @@ export function stationById(id) {
   return STATIONS.find((s) => s.id === id);
 }
 
+// Tiga tingkat kesulitan: durasi shift, kecepatan koki, laju pesanan,
+// kesabaran dasar, dan jumlah bintang awal.
+export const DIFFICULTIES = {
+  santai: { label: 'Santai', shiftSeconds: 240, speed: 320, spawnBase: 16, patienceBase: 60, stars: 4 },
+  normal: { label: 'Normal', shiftSeconds: 180, speed: 300, spawnBase: 14, patienceBase: 52, stars: 3 },
+  rush: { label: 'Rush', shiftSeconds: 150, speed: 340, spawnBase: 11, patienceBase: 44, stars: 3 },
+};
+export const DIFFICULTY_ORDER = ['santai', 'normal', 'rush'];
+
+export function difficultyDef(key) {
+  return DIFFICULTIES[key] || DIFFICULTIES.normal;
+}
+
+// Upgrade toko antar-aksi: dibeli pakai koin saat permainan dijeda.
+// Biaya level n (0-based) = baseCost * (n + 1).
+export const UPGRADES = {
+  shoes: { id: 'shoes', name: 'Sepatu Cepat', desc: '+15% kecepatan gerak / level', baseCost: 30, max: 3 },
+  burner: { id: 'burner', name: 'Tungku Ekstra', desc: '+1 slot kompor / level', baseCost: 50, max: 2 },
+  patience: { id: 'patience', name: 'Pelanggan Sabar', desc: '+20% kesabaran order baru / level', baseCost: 40, max: 3 },
+};
+export const UPGRADE_ORDER = ['shoes', 'burner', 'patience'];
+
+export function upgradeCost(id, level) {
+  const def = UPGRADES[id];
+  if (!def) return Infinity;
+  return def.baseCost * (level + 1);
+}
+
 // Bahan mentah: nama, warna ikon, dan proses yang dibutuhkan.
 // stage: 'raw' -> 'chopped' (talenen) dan/atau 'cooked' (kompor).
 export const INGREDIENTS = {
@@ -40,6 +69,7 @@ export const INGREDIENTS = {
   kacang: { name: 'Kacang', color: '#a1887f', cook: 4, burnAfter: 8 },
   teh: { name: 'Teh', color: '#6d4c41', cook: 4, burnAfter: 8 },
   es: { name: 'Es', color: '#4fc3f7' },
+  jeruk: { name: 'Jeruk', color: '#fb8c00' },
 };
 
 // Satu kebutuhan resep: bahan + tahap akhir yang harus dipenuhi.
@@ -98,6 +128,38 @@ export const RECIPES = [
     ],
     coins: 10,
   },
+  {
+    id: 'ayam-geprek',
+    name: 'Ayam Geprek Pedas',
+    color: '#c62828',
+    needs: [
+      { kind: 'ayam', stage: 'cooked' },
+      { kind: 'sambal', stage: 'raw' },
+      { kind: 'nasi', stage: 'cooked' },
+    ],
+    coins: 20,
+  },
+  {
+    id: 'soto-ayam',
+    name: 'Soto Ayam Hangat',
+    color: '#ffb300',
+    needs: [
+      { kind: 'ayam', stage: 'cooked' },
+      { kind: 'mie', stage: 'cooked' },
+      { kind: 'sayur', stage: 'chopped' },
+    ],
+    coins: 22,
+  },
+  {
+    id: 'es-jeruk',
+    name: 'Es Jeruk Segar',
+    color: '#fb8c00',
+    needs: [
+      { kind: 'jeruk', stage: 'raw' },
+      { kind: 'es', stage: 'raw' },
+    ],
+    coins: 12,
+  },
 ];
 
 export function recipeById(id) {
@@ -116,14 +178,36 @@ export function nextProcess(item) {
 }
 
 // Tuning pesanan: makin lama shift berjalan, pesanan datang makin cepat.
+// Varian lama (tanpa argumen) = kesulitan Normal, demi kompatibilitas.
 export function spawnInterval(elapsed) {
-  const t = elapsed / SHIFT_SECONDS;
-  return 14 - 6 * t;
+  return spawnIntervalFor('normal', elapsed, false);
 }
 export function orderPatience(elapsed) {
-  const t = elapsed / SHIFT_SECONDS;
-  return 52 - 16 * t;
+  return orderPatienceFor('normal', elapsed, false);
 }
+
+// Interval spawn per kesulitan. Endless: mengecil 1 detik tiap 30 detik, min 6.
+export function spawnIntervalFor(difficulty, elapsed, endless) {
+  const def = difficultyDef(difficulty);
+  if (endless) return Math.max(6, def.spawnBase - Math.floor(elapsed / 30));
+  const t = elapsed / def.shiftSeconds;
+  return Math.max(6, def.spawnBase - 6 * t);
+}
+
+// Kesabaran dasar order baru per kesulitan. Endless: mengecil 1 detik tiap
+// 20 detik, min 30 (variasi acak + bonus VIP/upgrade diterapkan di world.js).
+export function orderPatienceFor(difficulty, elapsed, endless) {
+  const def = difficultyDef(difficulty);
+  if (endless) return Math.max(30, def.patienceBase - Math.floor(elapsed / 20));
+  const t = elapsed / def.shiftSeconds;
+  return Math.max(20, def.patienceBase - 16 * t);
+}
+
 export const MAX_ORDERS = 4;
 export const MAX_STARS = 3;
 export const TIP_MAX = 10;
+
+// Pelanggan VIP: ~15% order baru; patience x1.15, koin x2, tip x2.
+export const VIP_CHANCE = 0.15;
+export const VIP_PATIENCE_MULT = 1.15;
+export const VIP_COIN_MULT = 2;

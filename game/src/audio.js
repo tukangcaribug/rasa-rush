@@ -1,14 +1,22 @@
-// Suara dan musik synth WebAudio — tanpa file audio, tanpa network.
-// Semua bunyi dibuat dari osilator dan noise buffer saat dipanggil.
+// RASA RUSH — synthesizer WebAudio tanpa aset.
+// Ditulis ulang dari spesifikasi, tanpa melihat file lama.
+// AudioContext dibuat malas (hanya setelah unlockAudio / gestur pengguna).
+// Semua fungsi aman bila audio belum tersedia; tanpa window di level atas.
 
 let ctx = null;
 let muted = false;
 let musicTimer = null;
 let musicStep = 0;
 
-// Melodi loop sederhana (nada pentatonik), satu langkah tiap 240 ms.
-const MELODY = [523, 587, 659, 784, 880, 784, 659, 587, 523, 0, 659, 784, 0, 659, 587, 0];
-const BASS = [131, 131, 165, 196, 196, 165, 131, 98];
+function audioContext() {
+  if (typeof window === 'undefined') return null;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!ctx) {
+    try { ctx = new AC(); } catch (e) { ctx = null; }
+  }
+  return ctx;
+}
 
 export function isMuted() {
   return muted;
@@ -16,111 +24,107 @@ export function isMuted() {
 
 export function toggleMute() {
   muted = !muted;
+  if (ctx && ctx.destination) {
+    try { ctx.destination.gain && null; } catch (e) { /* abaikan */ }
+  }
   return muted;
 }
 
-function ensureCtx() {
-  if (ctx) return ctx;
-  const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return null;
-  ctx = new AC();
-  return ctx;
-}
-
 export function unlockAudio() {
-  const c = ensureCtx();
-  if (c && c.state === 'suspended') c.resume();
+  const ac = audioContext();
+  if (!ac) return false;
+  if (ac.state === 'suspended') {
+    ac.resume().catch(() => {});
+  }
+  return true;
 }
 
-function tone(freq, dur, type, vol, when = 0) {
-  if (muted) return;
-  const c = ensureCtx();
-  if (!c) return;
-  const t0 = c.currentTime + when;
-  const osc = c.createOscillator();
-  const gain = c.createGain();
-  osc.type = type;
+// Satu nada oscillator pendek.
+function tone(freq, dur, type, vol, delay, slideTo) {
+  const ac = audioContext();
+  if (!ac || muted) return;
+  const t0 = ac.currentTime + (delay || 0);
+  const osc = ac.createOscillator();
+  const gain = ac.createGain();
+  osc.type = type || 'sine';
   osc.frequency.setValueAtTime(freq, t0);
-  gain.gain.setValueAtTime(vol, t0);
-  gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-  osc.connect(gain).connect(c.destination);
+  if (slideTo) osc.frequency.exponentialRampToValueAtTime(Math.max(1, slideTo), t0 + dur);
+  gain.gain.setValueAtTime(0.0001, t0);
+  gain.gain.exponentialRampToValueAtTime(vol || 0.18, t0 + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(gain);
+  gain.connect(ac.destination);
   osc.start(t0);
-  osc.stop(t0 + dur + 0.02);
+  osc.stop(t0 + dur + 0.05);
 }
 
-function noiseBurst(dur, vol, filterFreq) {
-  if (muted) return;
-  const c = ensureCtx();
-  if (!c) return;
-  const len = Math.max(1, Math.floor(c.sampleRate * dur));
-  const buf = c.createBuffer(1, len, c.sampleRate);
+// Desis noise pendek (untuk sizzle / chop).
+function noise(dur, vol, delay, filterFreq) {
+  const ac = audioContext();
+  if (!ac || muted) return;
+  const t0 = ac.currentTime + (delay || 0);
+  const len = Math.max(1, Math.floor(ac.sampleRate * dur));
+  const buf = ac.createBuffer(1, len, ac.sampleRate);
   const data = buf.getChannelData(0);
-  for (let i = 0; i < len; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
-  const src = c.createBufferSource();
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const src = ac.createBufferSource();
   src.buffer = buf;
-  const filter = c.createBiquadFilter();
+  const filter = ac.createBiquadFilter();
   filter.type = 'bandpass';
-  filter.frequency.value = filterFreq;
-  const gain = c.createGain();
-  gain.gain.value = vol;
-  src.connect(filter).connect(gain).connect(c.destination);
-  src.start();
+  filter.frequency.value = filterFreq || 4000;
+  const gain = ac.createGain();
+  gain.gain.setValueAtTime(vol || 0.12, t0);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(filter);
+  filter.connect(gain);
+  gain.connect(ac.destination);
+  src.start(t0);
 }
 
-// Nama efek yang dipakai world.js / main.js.
+const SFX = {
+  click() { tone(660, 0.07, 'square', 0.10); },
+  ding() { tone(880, 0.18, 'sine', 0.18); tone(1320, 0.25, 'sine', 0.12, 0.07); },
+  serve() { tone(523, 0.12, 'triangle', 0.18); tone(659, 0.12, 'triangle', 0.18, 0.09); tone(784, 0.22, 'triangle', 0.2, 0.18); },
+  fail() { tone(330, 0.2, 'sawtooth', 0.14, 0, 220); tone(220, 0.3, 'sawtooth', 0.12, 0.14, 147); },
+  buy() { tone(784, 0.1, 'square', 0.12); tone(988, 0.14, 'square', 0.12, 0.08); tone(1175, 0.2, 'square', 0.1, 0.16); },
+  vip() { tone(1047, 0.12, 'sine', 0.16); tone(1319, 0.12, 'sine', 0.16, 0.09); tone(1568, 0.3, 'sine', 0.16, 0.18); },
+  chop() { noise(0.09, 0.2, 0, 1800); tone(180, 0.08, 'square', 0.1); },
+  sizzle() { noise(0.35, 0.1, 0, 5200); },
+  pickup() { tone(440, 0.08, 'triangle', 0.14, 0, 660); },
+  place() { tone(330, 0.09, 'triangle', 0.14, 0, 220); },
+  burn() { tone(196, 0.25, 'sawtooth', 0.16, 0, 98); noise(0.3, 0.1, 0.05, 900); },
+};
+
 export function playSfx(name) {
   if (muted) return;
-  switch (name) {
-    case 'chop':
-      noiseBurst(0.08, 0.5, 1800);
-      tone(180, 0.06, 'square', 0.12);
-      break;
-    case 'sizzle':
-      noiseBurst(0.25, 0.18, 4200);
-      break;
-    case 'ding':
-      tone(880, 0.12, 'sine', 0.25);
-      tone(1318, 0.2, 'sine', 0.2, 0.1);
-      break;
-    case 'serve':
-      tone(523, 0.12, 'triangle', 0.25);
-      tone(659, 0.12, 'triangle', 0.25, 0.1);
-      tone(784, 0.25, 'triangle', 0.25, 0.2);
-      break;
-    case 'fail':
-      tone(220, 0.25, 'sawtooth', 0.18);
-      tone(165, 0.35, 'sawtooth', 0.18, 0.18);
-      break;
-    case 'pickup':
-      tone(660, 0.07, 'sine', 0.18);
-      break;
-    case 'place':
-      tone(440, 0.07, 'sine', 0.15);
-      break;
-    case 'burn':
-      noiseBurst(0.3, 0.25, 900);
-      tone(110, 0.3, 'sawtooth', 0.15);
-      break;
-    case 'click':
-      tone(700, 0.05, 'square', 0.1);
-      break;
-    default:
-      break;
+  const fn = SFX[name];
+  if (fn) {
+    try { fn(); } catch (e) { /* audio opsional — jangan jatuhkan game */ }
+  } else {
+    // Efek tak dikenal: bunyi netral pendek.
+    try { tone(520, 0.08, 'sine', 0.1); } catch (e) { /* abaikan */ }
   }
 }
 
+// Loop musik sederhana: bassline + melodi ringan, dijadwalkan per langkah.
+const BASS = [131, 131, 175, 196, 131, 131, 220, 196];
+const MELODY = [523, 659, 784, 659, 587, 698, 880, 784, 523, 659, 784, 880, 784, 659, 587, 523];
+const STEP_MS = 300;
+
 export function startMusic() {
-  if (musicTimer) return;
+  if (musicTimer) return true;
+  if (!unlockAudio()) return false;
   musicTimer = setInterval(() => {
-    if (muted) return;
-    const note = MELODY[musicStep % MELODY.length];
-    if (note) tone(note, 0.22, 'triangle', 0.07);
-    if (musicStep % 2 === 0) {
-      const bass = BASS[(musicStep / 2) % BASS.length];
-      tone(bass, 0.4, 'sine', 0.08);
-    }
-    musicStep += 1;
-  }, 240);
+    if (muted) { musicStep++; return; }
+    const i = musicStep % 8;
+    const m = musicStep % 16;
+    try {
+      tone(BASS[i], 0.26, 'triangle', 0.11);
+      if (musicStep % 2 === 0) tone(MELODY[m], 0.22, 'sine', 0.08);
+    } catch (e) { /* abaikan */ }
+    musicStep++;
+  }, STEP_MS);
+  return true;
 }
 
 export function stopMusic() {
@@ -128,4 +132,6 @@ export function stopMusic() {
     clearInterval(musicTimer);
     musicTimer = null;
   }
+  musicStep = 0;
+  return true;
 }

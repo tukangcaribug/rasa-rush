@@ -1,17 +1,24 @@
-// Input keyboard + mouse untuk RASA RUSH.
-// WASD/panah gerak, klik mouse jalan ke titik, E/Spasi interaksi, P jeda, M bisu, R ulang.
+// Input keyboard + mouse untuk RASA RUSH v2.
+// WASD/panah gerak, klik mouse jalan ke titik, E/Spasi interaksi, P jeda, M bisu,
+// R ulang, U toko upgrade, ArrowUp/Down + Enter untuk menu, klik canvas untuk tombol UI.
 
 export function createInput(canvas) {
   const keys = new Set();
   let clickTarget = null;
+  let clickPoint = null;
   let interactQueued = false;
   let pauseQueued = false;
   let muteQueued = false;
   let restartQueued = false;
   let anyKeyQueued = false;
+  let upgradeQueued = false;
+  let upQueued = false;
+  let downQueued = false;
+  let confirmQueued = false;
+  let toggleQueued = false;
 
   function keyName(e) {
-    return e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    return e.key.toLowerCase();
   }
 
   window.addEventListener('keydown', (e) => {
@@ -22,6 +29,11 @@ export function createInput(canvas) {
       if (k === 'p' || k === 'escape') pauseQueued = true;
       if (k === 'm') muteQueued = true;
       if (k === 'r') restartQueued = true;
+      if (k === 'u') upgradeQueued = true;
+      if (k === 'arrowup') upQueued = true;
+      if (k === 'arrowdown') downQueued = true;
+      if (k === 'enter') confirmQueued = true;
+      if (k === 't' || k === 'arrowleft' || k === 'arrowright') toggleQueued = true;
       anyKeyQueued = true;
     }
     keys.add(k);
@@ -33,10 +45,12 @@ export function createInput(canvas) {
     const rect = canvas.getBoundingClientRect();
     const sx = rect.width / canvas.width;
     const sy = rect.height / canvas.height;
-    clickTarget = {
+    const pt = {
       x: (e.clientX - rect.left) / sx,
       y: (e.clientY - rect.top) / sy,
     };
+    clickTarget = pt;
+    clickPoint = { x: pt.x, y: pt.y };
     anyKeyQueued = true;
   });
 
@@ -89,8 +103,53 @@ export function createInput(canvas) {
       anyKeyQueued = false;
       return v;
     },
+    // Tombol U: buka/tutup toko upgrade.
+    consumeUpgrade() {
+      const v = upgradeQueued;
+      upgradeQueued = false;
+      return v;
+    },
+    // Navigasi menu: ArrowUp / ArrowDown / Enter.
+    consumeUp() {
+      const v = upQueued;
+      upQueued = false;
+      return v;
+    },
+    consumeDown() {
+      const v = downQueued;
+      downQueued = false;
+      return v;
+    },
+    consumeConfirm() {
+      const v = confirmQueued;
+      confirmQueued = false;
+      return v;
+    },
+    // Toggle (T atau panah kiri/kanan): dipakai untuk saklar Endless di menu.
+    consumeToggle() {
+      const v = toggleQueued;
+      toggleQueued = false;
+      return v;
+    },
+    // Klik canvas terakhir (koordinat game 1280x720), sekali pakai.
+    consumeClick() {
+      const v = clickPoint;
+      clickPoint = null;
+      return v;
+    },
+    // Dipanggil tombol HTML di index.html (btn-interact / btn-upgrade / btn-pause).
+    pressInteract() {
+      interactQueued = true;
+    },
+    pressUpgrade() {
+      upgradeQueued = true;
+    },
+    pressPause() {
+      pauseQueued = true;
+    },
     clearClick() {
       clickTarget = null;
+      clickPoint = null;
     },
   };
 }
