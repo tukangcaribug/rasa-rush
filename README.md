@@ -1,5 +1,9 @@
 # RASA RUSH
 
+[![make.fun · best-cooking-game-20261125-0137](https://make.fun/badge/best-cooking-game-20261125-0137.svg)](https://make.fun/bounty/best-cooking-game-20261125-0137?utm_source=github&utm_medium=readme&utm_campaign=best-cooking-game-20261125-0137)
+[![rank](https://make.fun/badge/best-cooking-game-20261125-0137/tukangcaribug/rasa-rush/rank.svg)](https://make.fun/bounty/best-cooking-game-20261125-0137/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=best-cooking-game-20261125-0137)
+[![reward](https://make.fun/badge/best-cooking-game-20261125-0137/tukangcaribug/rasa-rush/reward.svg)](https://make.fun/bounty/best-cooking-game-20261125-0137?utm_source=github&utm_medium=readme&utm_campaign=best-cooking-game-20261125-0137)
+
 **RASA RUSH** is a fast top-down 2D cooking game built for make.fun's "Make the best cooking game" bounty.
 
 You are a cook in a small Indonesian kitchen, and the orders never stop coming. Fetch ingredients, chop, cook, assemble, serve — and do it all before your customers lose patience.
